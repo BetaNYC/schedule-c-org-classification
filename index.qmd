@@ -245,7 +245,9 @@ arts_culture_awards <- schedule_c |>
 
 Filtering for the above two conditions returns `r scales::comma(nrow(arts_culture_awards))` of `r scales::comma(nrow(schedule_c))` awards, a total of `r round((nrow(arts_culture_awards)/nrow(schedule_c)*100),1)`%. These awards comprise only `r round(sum(as.numeric(arts_culture_awards$Amount))/sum(as.numeric(schedule_c$Amount))*100,1)`% of total Schedule C funds, `r scales::dollar(sum(as.numeric(arts_culture_awards$Amount)))` out of `r scales::dollar(sum(as.numeric(schedule_c$Amount)))`
 
-This approach is limited by the omission of organizations doing arts or cultural work, but whose Schedule C funding is not easily identifiable as such. 
+This approach is limited by the omission of organizations whose Schedule C award(s) do not easily indicate their engagement in arts or cultural work.
+
+**Next: Classify organizations by NTEE code**
 
 
 
