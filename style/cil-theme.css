@@ -158,6 +158,13 @@ table {
         padding-top: 8px;
     }
 
+    /* flextable emits a real <thead>, so the counter above would add a phantom
+       cell to body rows only, shifting every column one position. */
+    .scroll-output tbody tr::before {
+        display: none;
+        content: none;
+    }
+
 figure.chart {
     width: 100%;
     display: flex;
@@ -334,6 +341,25 @@ header.cil-header {
         border: none;
         background-color: #ffffff;
         color: #141414;
+    }
+
+    /* The global `table-layout: fixed` above caps these tables at the container
+       and squeezes every column to an equal share. Auto layout alone isn't
+       enough where cil_table() sets explicit widths — those also need an
+       intrinsic width to survive, and the container then scrolls. */
+    .scroll-output table {
+        table-layout: auto;
+    }
+
+    .scroll-output--fit table {
+        width: max-content;
+    }
+
+    /* dim_pretty() estimates header widths a hair under what the browser
+       renders, so computed widths alone still wrap. A column narrower than its
+       header grows to fit it. */
+    .scroll-output thead th {
+        white-space: nowrap;
     }
 
     .scroll-output::-webkit-scrollbar {

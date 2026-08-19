@@ -6,3 +6,4 @@
 **/*.quarto_ipynb
 /index_cache/
 .positai
+~$*
