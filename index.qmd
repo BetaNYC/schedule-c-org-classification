@@ -241,16 +241,18 @@ arts_culture_inits <- c(
 )
 
 arts_culture_awards <- schedule_c |> 
-  filter(Source %in% arts_culture_inits | Agency == "DCLA")
+  filter(Source %in% arts_culture_inits)
 ```
 
-Filtering for the above two conditions returns `r scales::comma(nrow(arts_culture_awards))` of `r scales::comma(nrow(schedule_c))` awards, a total of `r round((nrow(arts_culture_awards)/nrow(schedule_c)*100),1)`%. These awards comprise only `r round(sum(as.numeric(arts_culture_awards$Amount))/sum(as.numeric(schedule_c$Amount))*100,1)`% of total Schedule C funds, `r scales::dollar(sum(as.numeric(arts_culture_awards$Amount)))` out of `r scales::dollar(sum(as.numeric(schedule_c$Amount)))`
+Filtering for the above arts and culture funding initiatives returns `r scales::comma(nrow(arts_culture_awards))` of `r scales::comma(nrow(schedule_c))` awards, a total of `r round((nrow(arts_culture_awards)/nrow(schedule_c)*100),1)`%. These awards comprise only `r round(sum(as.numeric(arts_culture_awards$Amount))/sum(as.numeric(schedule_c$Amount))*100,1)`% of total Schedule C funds, `r scales::dollar(sum(as.numeric(arts_culture_awards$Amount)))` out of `r scales::dollar(sum(as.numeric(schedule_c$Amount)))`
 
-This approach is limited by the omission of organizations whose Schedule C award(s) do not easily indicate their engagement in arts or cultural work.
+This approach is limited by the omission of organizations whose Schedule C award(s) funding source do not easily indicate their engagement in arts or cultural work.
 
-Another pathway to Schedule C award classification is to use Federal IRS data. The IRS classifies nonprofit organizations using the National Taxonomy of Exempt Entities (NTEE) system, which was developed by the National Center For Charitable Statistics in the 1980s. Nonprofits are assigned an NTEE code during the tax-exempt application process. The NCSS outlines appropriate uses of NTEE codes as follows:
+Another pathway to Schedule C award classification is to use Federal IRS data. The IRS classifies nonprofit organizations using the National Taxonomy of Exempt Entities (NTEE) system, which was developed by the National Center For Charitable Statistics in the 1980s. Nonprofits are assigned an NTEE code during the tax-exempt application process. The NCCS outlines appropriate uses of NTEE codes as follows:
 
 > *The National Taxonomy of Exempt Entities (NTEE) is a descriptive taxonomy that helps regulators and researchers aggregate data for statistical analysis. While certain nonprofit characteristics like the assigned 501(c) subsection code can have significant binding implications such as whether a donation can be treated as tax-deductible (501c3 public charities) or NOT (most other 501c types). The NTEE classification, on the other hand, should not be used as a limiting factor by funders or other institutional actors. The NTEE is often not precise and many nonprofits have missions that span multiple NTEE categories. It is NOT recommended to ever eliminate nonprofits from funding considerations because of their NTEE code or assume that their NTEE category captures their full range of activities.*
+
+Nonprofit NTEE codes are included in the IRS' Business Master File (BMF) data. BMF data may be joined to the Schedule C disclosure records via Federal Tax ID numbers (EINs). 
 
 ```{r}
 # Get NCCS BMF cols
@@ -271,8 +273,60 @@ result <- query |>
 # Join BMF to Schedule C on EIN
 schedule_c_bmf <- schedule_c |> 
   left_join(result, by = join_by("ein_nccs" == "ein"))
+
+# Unique EINs in Schedule C funding
+unique_ein <- schedule_c_bmf |> distinct(ein_nccs) |> nrow()
+
+# Successful joins
+eins_joined <- schedule_c_bmf |> filter(!is.na(org_name_display)) |> distinct(ein_nccs) |> nrow()
+
+# Unsuccessful joins
+eins_notJoined <- schedule_c_bmf |> filter(is.na(org_name_display)) |> distinct(ein_nccs) |> nrow()
 ```
 
+Of the `r scales::comma(unique_ein)` unique organizations awarded Schedule C funds in FY27, `r scales::comma(eins_joined)` (`r round(eins_joined/unique_ein*100,1)`%) can successfully be joined to BMF data. `r eins_notJoined` organizations cannot:
+
+```{r}
+# TODO: Format table to fill div horizontally
+
+cil_table(schedule_c_bmf |> filter(is.na(org_name_display)) |> distinct(`Legal Name`, `Tax ID`) |> arrange(`Tax ID`))
+```
+
+Broadly, these organizations without a BMF record are:
+
+- City entities sharing the Tax ID `136400434`
+- CUNY (`133893536`)
+- Houses of worship
+- Others
+
+```{r}
+has_ntee <- schedule_c_bmf |> 
+  filter(!is.na(org_name_display) & !(ntee_code_definition %in% c("UNDEFINED", "Unknown"))) |> 
+  distinct(ein_nccs) |> 
+  nrow()
+```
+
+Of the `r scales::comma(eins_joined)` organizations able to be joined to BMF data, `r scales::comma(has_ntee)` have an NTEE classification (i.e. their code is not `UNDEFINED` or `Unknown`).
+
+<!--
+From here, separate out schedule_c_bmf into two groups:
+
+- Has NTEE classification
+- Unknown NTEE code OR unable to be joined to BMF
+
+Then, classify first group by arts and culture NTEE classification
+
+Then, compare to the original funding source classification
+
+Ultimately, this approach will append arts-classified orgs to the list based on funding source (i.e. no double counting)
 
 
+Unused copy:
 
+Both of these approaches are imperfect:
+
+* Funding for arts and cultural organizations or programming is not limited to initiatives or provisions that make an explicit reference to the sector
+* DCLA is not the only agency that funds arts and culture organizations
+* Organizations of all types may engage in arts and cultural programming
+
+-->
