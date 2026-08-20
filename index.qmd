@@ -18,12 +18,13 @@ execute:
 
 # Insure packages are installed by checking required packages against installed packages
 reqd_pkgs <- c("flextable",
-               "sf",
+               #"sf",
                "tidyverse",
-               "mapgl",
+               #"mapgl",
                "htmltools",
                "officer",
-               "scales")
+               "scales",
+               "nccsdata")
 
 install.packages(
   setdiff(
@@ -247,7 +248,31 @@ Filtering for the above two conditions returns `r scales::comma(nrow(arts_cultur
 
 This approach is limited by the omission of organizations whose Schedule C award(s) do not easily indicate their engagement in arts or cultural work.
 
-**Next: Classify organizations by NTEE code**
+Another pathway to Schedule C award classification is to use Federal IRS data. The IRS classifies nonprofit organizations using the National Taxonomy of Exempt Entities (NTEE) system, which was developed by the National Center For Charitable Statistics in the 1980s. Nonprofits are assigned an NTEE code during the tax-exempt application process. The NCSS outlines appropriate uses of NTEE codes as follows:
+
+> *The National Taxonomy of Exempt Entities (NTEE) is a descriptive taxonomy that helps regulators and researchers aggregate data for statistical analysis. While certain nonprofit characteristics like the assigned 501(c) subsection code can have significant binding implications such as whether a donation can be treated as tax-deductible (501c3 public charities) or NOT (most other 501c types). The NTEE classification, on the other hand, should not be used as a limiting factor by funders or other institutional actors. The NTEE is often not precise and many nonprofits have missions that span multiple NTEE categories. It is NOT recommended to ever eliminate nonprofits from funding considerations because of their NTEE code or assume that their NTEE category captures their full range of activities.*
+
+```{r}
+# Get NCCS BMF cols
+dict <- nccs_dictionary()
+
+# Format NYCC EIN strings to NCCS standard
+schedule_c <- schedule_c |> 
+  mutate(ein_nccs = nccs_normalize_ein(`Tax ID`))
+
+# Get lazy arrow query to append with dplyr chain before collecting
+query <- nccs_read(collect = FALSE)
+
+# Pull down BMF rows for orgs in FY27 Schedule C dataset
+result <- query |> 
+  filter(ein %in% schedule_c$ein_nccs) |> 
+  collect()
+
+# Join BMF to Schedule C on EIN
+schedule_c_bmf <- schedule_c |> 
+  left_join(result, by = join_by("ein_nccs" == "ein"))
+```
+
 
 
 
