@@ -57,14 +57,19 @@ set_flextable_defaults(
 # fitted widths, never the ones `widths` names.
 # Usage: data |> cil_table(widths = c("Purpose of Funds" = 4))
 cil_table <- function(data, widths = NULL, heights = NULL,
-                      max_width = NULL, unit = "in") {
+                      max_width = NULL, unit = "in", full_width = FALSE) {
   ft <- flextable(data)
   fitted <- !(is.null(widths) && is.null(max_width))
+  
+  if (fitted && full_width) {
+    stop("`full_width` stretches columns to the container; `widths`/`max_width` ",
+         "pin them. Use one or the other.", call. = FALSE)
+  }
 
   if (!fitted) {
     # Browser-side content fitting, like Excel's Autofit. width = 0 leaves the
     # table unconstrained; width = 1 would stretch it to 100% regardless of text.
-    ft <- set_table_properties(ft, width = 0, layout = "autofit")
+    ft <- set_table_properties(ft, if (full_width) 1 else 0, layout = "autofit")
   } else {
     # Fitted widths are the baseline, capped by max_width, then overridden by
     # anything `widths` names. "autofit" discards widths, so this must be fixed.
@@ -99,10 +104,8 @@ cil_table <- function(data, widths = NULL, heights = NULL,
   ft |>
     border_remove() |>
     bold(bold = TRUE, part = "header") |>
-    hline(
-      border = fp_border(color = "#0b0b0b", width = 0.75),
-      part   = "all"
-    ) |>
+    hline(border = fp_border(color = "#0b0b0b", width = 1.5),  part = "header") |>
+    hline(border = fp_border(color = "#969696", width = 0.75), part = "body") |>
     padding(
       padding.top = 0, padding.bottom = 4,
       padding.left = 0, padding.right = 16,
@@ -197,8 +200,9 @@ local({
 
 schedule_c <- readxl::read_xlsx(funded_disclosure_path)
 ```
+# Identifying sector funding
 
-New York City Council discretionary funding to non-profits and agency initiatives (colloquially known as *Schedule C* funding) is a large source of funding for cultural and arts organizations in New York City. Getting a complete view of Schedule C funding of the sector (or any single sector, by extension) is not straightforward as:
+New York City Council discretionary funding to non-profit organizations (colloquially known as *Schedule C* funding) is a large source of funding for arts and culture in New York City. However, getting a complete view of Schedule C funding of the sector (or any single sector, by extension) is not straightforward as:
 
 - expense and capital funding disclosure data are released by fiscal year, via Excel files on the Council's website, and 
 - awards are not classified or categorized beyond their `Source`, the initiative or provision from which the funds are awarded.
@@ -216,6 +220,8 @@ There are two immediate ways to identify awards to arts and cultural organizatio
 
 1. The initiative or provision in `Source` explicitly references arts or culture
 2. The contracting city agency is the Department of Cultural Affairs (`Agency`: `DCLA`)
+
+## By Funding Initiative
 
 There are `r nrow(schedule_c |> distinct(Source))` funding initiatives for FY 2027. Those that explicitly apply to arts and cultural organizations are:
 
@@ -247,6 +253,8 @@ arts_culture_awards <- schedule_c |>
 Filtering for the above arts and culture funding initiatives returns `r scales::comma(nrow(arts_culture_awards))` of `r scales::comma(nrow(schedule_c))` awards, a total of `r round((nrow(arts_culture_awards)/nrow(schedule_c)*100),1)`%. These awards comprise only `r round(sum(as.numeric(arts_culture_awards$Amount))/sum(as.numeric(schedule_c$Amount))*100,1)`% of total Schedule C funds, `r scales::dollar(sum(as.numeric(arts_culture_awards$Amount)))` out of `r scales::dollar(sum(as.numeric(schedule_c$Amount)))`
 
 This approach is limited by the omission of organizations whose Schedule C award(s) funding source do not easily indicate their engagement in arts or cultural work.
+
+## By IRS BMF NTEE Code
 
 Another pathway to Schedule C award classification is to use Federal IRS data. The IRS classifies nonprofit organizations using the National Taxonomy of Exempt Entities (NTEE) system, which was developed by the National Center For Charitable Statistics in the 1980s. Nonprofits are assigned an NTEE code during the tax-exempt application process. The NCCS outlines appropriate uses of NTEE codes as follows:
 
@@ -287,9 +295,8 @@ eins_notJoined <- schedule_c_bmf |> filter(is.na(org_name_display)) |> distinct(
 Of the `r scales::comma(unique_ein)` unique organizations awarded Schedule C funds in FY27, `r scales::comma(eins_joined)` (`r round(eins_joined/unique_ein*100,1)`%) can successfully be joined to BMF data. `r eins_notJoined` organizations cannot:
 
 ```{r}
-# TODO: Format table to fill div horizontally
-
-cil_table(schedule_c_bmf |> filter(is.na(org_name_display)) |> distinct(`Legal Name`, `Tax ID`) |> arrange(`Tax ID`))
+cil_table(schedule_c_bmf |> filter(is.na(org_name_display)) |> distinct(`Legal Name`, `Tax ID`) |> arrange(`Tax ID`),
+          full_width = TRUE)
 ```
 
 Broadly, these organizations without a BMF record are:
@@ -308,25 +315,475 @@ has_ntee <- schedule_c_bmf |>
 
 Of the `r scales::comma(eins_joined)` organizations able to be joined to BMF data, `r scales::comma(has_ntee)` have an NTEE classification (i.e. their code is not `UNDEFINED` or `Unknown`).
 
-<!--
-From here, separate out schedule_c_bmf into two groups:
+We can now expand the universe of arts and culture awards by including organizations whose NTEE major code is "Arts, Culture and Humanities" in addition to awards whose funding initiative is arts- or culture-based. We can also include awards with DCLA as the contracting agency. 
 
-- Has NTEE classification
-- Unknown NTEE code OR unable to be joined to BMF
+```{r}
+addtnl_arts_awards <- schedule_c_bmf |> 
+  filter(ntee_code_major_group == "Arts, Culture and Humanities" & !(`MOCS ID#` %in% arts_culture_awards$`MOCS ID#`))
 
-Then, classify first group by arts and culture NTEE classification
+arts_culture_all <- schedule_c_bmf |> 
+  filter(ntee_code_major_group == "Arts, Culture and Humanities" | Source %in% arts_culture_inits | Agency == "DCLA")
+```
 
-Then, compare to the original funding source classification
+This expands the number of arts and culture awards from `r scales::comma(nrow(arts_culture_awards))` to `r scales::comma(nrow(arts_culture_all))`. This represents `r round(nrow(arts_culture_awards)/nrow(schedule_c)*100,1)`% of FY27 Schedule C awards.
 
-Ultimately, this approach will append arts-classified orgs to the list based on funding source (i.e. no double counting)
+The expanded definition of arts and culture awards comprise `r round(sum(as.numeric(arts_culture_all$Amount))/sum(as.numeric(schedule_c$Amount))*100,1)`% of total Schedule C funds, `r scales::dollar(sum(as.numeric(arts_culture_all$Amount)))` out of `r scales::dollar(sum(as.numeric(schedule_c$Amount)))`.
 
+# Top Funders of Arts & Cultural Organizations
+## By Council Member
 
-Unused copy:
+```{r}
+# Spending by CM
+top_cm <- arts_culture_all |> 
+  group_by(`Council Member`) |> 
+  summarise(Amount = sum(Amount, na.rm = T), Number = n()) |>
+  mutate(pct = round(Amount / sum(Amount) * 100,3)) |> 
+  arrange(desc(Amount))
 
-Both of these approaches are imperfect:
+# Exclude categories that aren't individual CMs
+top_cm_ind <- top_cm |> 
+  filter(`Council Member` != "Speaker" & str_detect(`Council Member`, "Delegation", negate = TRUE) & !is.na(`Council Member`))
 
-* Funding for arts and cultural organizations or programming is not limited to initiatives or provisions that make an explicit reference to the sector
-* DCLA is not the only agency that funds arts and culture organizations
-* Organizations of all types may engage in arts and cultural programming
+top_non_cm <- top_cm |> 
+  filter(!`Council Member` %in% top_cm_ind$`Council Member`)
 
--->
+delegation_awards <- top_cm |> 
+  filter(str_detect(`Council Member`, "Delegation"))
+
+delegation_pct <- round(sum(top_non_cm |> filter(str_detect(`Council Member`, "Delegation")) |> pull(pct)),1)
+delegation_amt <- sum(top_non_cm |> filter(str_detect(`Council Member`, "Delegation")) |> pull(Amount))
+
+cm_major_groups <- 
+  bind_rows(
+    # NA and Speaker
+    top_cm |> filter(is.na(`Council Member`) | `Council Member` == "Speaker") |> select(`Council Member`, Amount, pct),
+    # Individual CMS
+    tibble(
+      `Council Member` = "Individual CMs",
+      Amount = sum(top_cm_ind$Amount),
+      pct = sum(top_cm_ind$pct)
+    ),
+    # Borough Delegations
+    tibble(
+      `Council Member` = "Borough Delegations",
+      Amount = sum(delegation_awards$Amount),
+      pct = sum(delegation_awards$pct)
+    )
+  ) |> 
+  arrange(desc(pct)) |> 
+  mutate(`Council Member` = replace_na(`Council Member`, "No CM listed"))
+
+ind_cm_pct <- cm_major_groups |> filter(`Council Member` == "Individual CMs") |> pull(pct)
+
+ojs_define(cm_data = cm_major_groups)
+```
+
+Awards from individual Council Members to arts and cultural organizations represent the largest share of awards by `Council Member`, `r round(ind_cm_pct,1)`% (`r scales::dollar(sum(top_cm_ind$Amount))`), but not the majority.
+
+`r round(top_cm |> head(1) |> pull(pct), 1)`% (`r scales::dollar(top_cm |> head(1) |> pull(Amount))`) of arts and culture awards do not have a Council Member associated with them (`Council Member`: `NA`) at all. `r round((top_cm |> head(2) |> pull(pct))[2],1)`% (`r scales::dollar((top_cm |> head(2) |> pull(Amount))[2])`) of awards come from the Council Speaker (`Council Member`: `Speaker`). 
+
+The remaining `r delegation_pct`% (`r scales::dollar(delegation_amt)`) is awarded by the five Borough Delegations. 
+
+```{ojs}
+d3 = require("d3@7")
+groups = transpose(cm_data)
+
+// Based on https://gist.github.com/dbuezas/9306799
+chart = {
+  const width = 760, height = 440;
+  const radius = Math.min(width * 0.34, height / 2 - 20);
+
+  const svg = d3.create("svg")
+      .attr("viewBox", [-width / 2, -height / 2, width, height])
+      .attr("style", "max-width: 100%; height: auto; font: 13px Authentic Sans;");
+
+  const color = d3.scaleOrdinal()
+      .domain(["Individual CMs", "No CM listed", "Speaker", "Borough Delegations"])
+      .range(["#3258a3", "#3e7bd2", "#73b3e7", "#c7e1f6"])
+      .unknown("#8a8a8a");
+
+  const arc      = d3.arc().innerRadius(0).outerRadius(radius * 0.8);
+  const outerArc = d3.arc().innerRadius(radius * 0.9).outerRadius(radius * 0.9);
+  const midAngle = d => d.startAngle + (d.endAngle - d.startAngle) / 2;
+  const arcs = d3.pie().sort(null).value(d => d.pct)(groups);
+
+  // label anchor per slice, plus a de-overlap pass the gist doesn't have
+  const labels = arcs.map(d => {
+    const side = midAngle(d) < Math.PI ? 1 : -1;
+    return { d, side, y: outerArc.centroid(d)[1], x: radius * side };
+  });
+
+  const minGap = 34;
+  for (const side of [1, -1]) {
+    const col = labels.filter(l => l.side === side).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < col.length; i++)
+      col[i].y = Math.max(col[i].y, col[i - 1].y + minGap);
+    const overflow = col.length ? col[col.length - 1].y - (height / 2 - 20) : 0;
+    if (overflow > 0) col.forEach(l => l.y -= overflow);
+  }
+
+  svg.append("g")
+    .selectAll("path")
+    .data(labels)
+    .join("path")
+      .attr("d", l => arc(l.d))
+      .attr("fill", l => color(l.d.data["Council Member"]))
+      .attr("stroke", "white")
+      .attr("stroke-width", 2)
+    .append("title")
+      .text(l => `${l.d.data["Council Member"]}: ${l.d.data.pct.toFixed(1)}%`);
+
+  svg.append("g")
+      .attr("fill", "none")
+      .attr("stroke", "#666")
+      .attr("stroke-width", 1)
+      .attr("opacity", 0.5)
+    .selectAll("polyline")
+    .data(labels)
+    .join("polyline")
+      .attr("points", l => [
+        arc.centroid(l.d),
+        outerArc.centroid(l.d),
+        [l.x * 0.95, l.y]
+      ]);
+
+  svg.append("g")
+    .selectAll("text")
+    .data(labels)
+    .join("text")
+      .attr("transform", l => `translate(${l.x},${l.y})`)
+      .attr("text-anchor", l => l.side === 1 ? "start" : "end")
+      .attr("dy", "0.35em")
+      .call(t => t.append("tspan")
+          .attr("font-weight", "bold")
+          .text(l => l.d.data["Council Member"]))
+      .call(t => t.append("tspan")
+          .attr("x", 0).attr("dy", "1.2em")
+          .attr("fill", "#555")
+          .text(l => `${l.d.data.pct.toFixed(1)}%`));
+
+  return svg.node();
+}
+```
+
+```{r}
+top_cm <- top_cm_ind |> head(1) |> pull(`Council Member`)
+top_cm_n <- top_cm_ind |> head(1) |> pull(`Number`)
+top_cm_amount <- top_cm_ind |> head(1) |> pull(`Amount`)
+
+bottom_cm <- top_cm_ind |> tail(1) |> pull(`Council Member`)
+bottom_cm_n <- top_cm_ind |> tail(1) |> pull(`Number`)
+bottom_cm_amount <- top_cm_ind |> tail(1) |> pull(`Amount`)
+```
+
+The amount of money awarded to arts and cultural organizations by individual council member varies widely.
+
+Council Member `r top_cm` made `r top_cm_n` awards to arts and cultural organizations, totalling `r dollar(top_cm_amount)`.
+
+Council Member `r bottom_cm` made only `r bottom_cm_n` awards to arts and cultural organizations, totalling `r dollar(bottom_cm_amount)`.
+```{r}
+top_cm_ind_reformat <- top_cm_ind |> 
+  mutate(Amount = scales::dollar(Amount)) |> 
+  rename(
+    "Total Amount" = "Amount",
+    "Number of Awards" = "Number",
+    "Share of Funding (%)" = "pct"
+    ) 
+
+cil_table(top_cm_ind_reformat, full_width = TRUE)
+```
+## By Agency
+
+```{r}
+arts_culture_all$Agency[arts_culture_all$Agency == "dcla"] <- "DCLA"
+
+top_agencies <- arts_culture_all |> 
+  group_by(Agency) |> 
+  summarise(Amount = sum(Amount, na.rm = T), Number = n()) |>
+  mutate(pct = round(Amount / sum(Amount) * 100,3)) |> 
+  arrange(desc(Amount))
+
+top_agencies_grouped <- top_agencies |>
+  mutate(Agency = if_else(row_number() <= 6, Agency, "All other agencies")) |>
+  group_by(Agency) |>
+  summarise(Amount = sum(Amount), Number = sum(Number), pct = sum(pct)) |>
+  arrange(desc(Amount))
+
+ojs_define(agency_data = top_agencies_grouped)
+```
+
+`r top_agencies |> slice(1) |> pull(Agency)` is the contracting agency for `r top_agencies |> slice(1) |> pull(pct) |> round(1)`% (`r top_agencies |> slice(1) |> pull(Amount) |> scales::dollar()`) of arts and culture awards. `r top_agencies |> slice(2) |> pull(Agency)` and `r top_agencies |> slice(3) |> pull(Agency)` are the second- and third-largest contracting agencies, with `r top_agencies |> slice(2) |> pull(pct) |> round(1)`% (`r top_agencies |> slice(2) |> pull(Amount) |> scales::dollar()`) and `r top_agencies |> slice(3) |> pull(pct) |> round(1)`% (`r top_agencies |> slice(3) |> pull(Amount) |> scales::dollar()`) of awards, respectively. 
+
+```{ojs}
+groups_2 = transpose(agency_data)
+
+agencyChart = {
+  const width = 760, height = 460;
+  const radius = Math.min(width * 0.34, height / 2 - 20);
+
+  const svg = d3.create("svg")
+      .attr("viewBox", [-width / 2, -height / 2, width, height])
+      .attr("style", "max-width: 100%; height: auto; font: 13px Authentic Sans;");
+
+  // Same endpoints as the Council Member pie, spread across however many rows
+  // agency_data has. Lab interpolation keeps the lightness steps even.
+  const ramp = d3.interpolateLab("#3258a3", "#c7e1f6");
+  const n = groups_2.length;
+  const color = d3.scaleOrdinal()
+      .domain(groups_2.map(d => d.Agency))
+      .range(groups_2.map((_, i) => ramp(n === 1 ? 0 : i / (n - 1))))
+      .unknown("#8a8a8a");
+
+  const arc      = d3.arc().innerRadius(0).outerRadius(radius * 0.8);
+  const outerArc = d3.arc().innerRadius(radius * 0.9).outerRadius(radius * 0.9);
+  const midAngle = d => {
+    const a = (d.startAngle + (d.endAngle - d.startAngle) / 2) % (2 * Math.PI);
+    return a < 0 ? a + 2 * Math.PI : a;
+  };
+  const rotate = -Math.PI / 4;
+  const arcs = d3.pie()
+      .sort(null)
+      .startAngle(rotate)
+      .endAngle(rotate + 2 * Math.PI)
+      .value(d => d.pct)(groups_2);
+
+  const labels = arcs.map(d => {
+    const side = midAngle(d) < Math.PI ? 1 : -1;
+    return { d, side, y: outerArc.centroid(d)[1], x: radius * side };
+  });
+
+  const minGap = 34;
+  for (const side of [1, -1]) {
+    const col = labels.filter(l => l.side === side).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < col.length; i++)
+      col[i].y = Math.max(col[i].y, col[i - 1].y + minGap);
+    const overflow = col.length ? col[col.length - 1].y - (height / 2 - 20) : 0;
+    if (overflow > 0) col.forEach(l => l.y -= overflow);
+  }
+
+  svg.append("g")
+    .selectAll("path")
+    .data(labels)
+    .join("path")
+      .attr("d", l => arc(l.d))
+      .attr("fill", l => color(l.d.data.Agency))
+      .attr("stroke", "white")
+      .attr("stroke-width", 2)
+    .append("title")
+      .text(l => `${l.d.data.Agency}: ${l.d.data.pct.toFixed(1)}%`);
+
+  svg.append("g")
+      .attr("fill", "none")
+      .attr("stroke", "#666")
+      .attr("stroke-width", 1)
+      .attr("opacity", 0.5)
+    .selectAll("polyline")
+    .data(labels)
+    .join("polyline")
+      .attr("points", l => [
+        arc.centroid(l.d),
+        outerArc.centroid(l.d),
+        [l.x * 0.98, l.y]
+      ]);
+
+  svg.append("g")
+    .selectAll("text")
+    .data(labels)
+    .join("text")
+      .attr("transform", l => `translate(${l.x},${l.y})`)
+      .attr("text-anchor", l => l.side === 1 ? "start" : "end")
+      .attr("dy", "0.35em")
+      .call(t => t.append("tspan")
+          .attr("font-weight", "bold")
+          .text(l => l.d.data.Agency))
+      .call(t => t.append("tspan")
+          .attr("x", 0).attr("dy", "1.2em")
+          .attr("fill", "#555")
+          .text(l => `${l.d.data.pct.toFixed(1)}%`));
+
+  return svg.node();
+}
+```
+
+Interestingly, FY27 awards still list DoITT as a contracting agency, despite being renamed to OTI in a 2022 consolidation effort. 
+```{r}
+top_agencies_reformat <- top_agencies |> 
+  mutate(Amount = scales::dollar(Amount)) |> 
+  rename(
+    "Total Amount" = "Amount",
+    "Number of Awards" = "Number",
+    "Share of Funding (%)" = "pct"
+    ) 
+
+cil_table(top_agencies_reformat, full_width = TRUE)
+```
+
+```{r}
+#| message: FALSE
+#| warning: FALSE
+# 
+# # Unload NCCS package to mitigate arrow conflict
+# detach("package:nccsdata", unload = TRUE)
+# library(sf)
+# library(mapgl)
+# 
+# comDist <- read_sf("https://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/NYC_Community_Districts/FeatureServer/0/query?where=1=1&outFields=*&outSR=4326&f=pgeojson")
+# 
+# # Create spatial dataframe for schedule c
+# # Use coords from BMF
+# # Could also geocode schedule C address
+# schedule_c_geo <- schedule_c_bmf |> 
+#   filter(!is.na(geo_lon) & !is.na(geo_lat)) |> 
+#   st_as_sf(coords = c("geo_lon", "geo_lat"),
+#            crs = 4326) |> 
+#   st_join(comDist |> select(BoroCD))
+# 
+# 
+# # Aggregations
+# comDist_all_awards <- schedule_c_geo |> 
+#   st_drop_geometry() |> 
+#   group_by(BoroCD) |> 
+#   summarize(n_all_awards = n(),
+#             dollar_all_awards = sum(as.numeric(Amount)))
+# 
+# comDist_arts_awards <- schedule_c_geo |> 
+#   st_drop_geometry() |> 
+#   filter(ntee_code_major_group == "Arts, Culture and Humanities" | Source %in% arts_culture_inits | Agency == "DCLA") |> 
+#   group_by(BoroCD) |> 
+#   summarize(n_arts_awards = n(),
+#             dollar_arts_awards = sum(as.numeric(Amount)))
+# 
+# 
+# comDist_agg <- comDist |> 
+#   left_join(comDist_all_awards) |> 
+#   left_join(comDist_arts_awards) |> 
+#   select(-Shape__Length, -Shape__Area) |> 
+#   mutate(across(c(n_arts_awards, dollar_arts_awards), \(x) coalesce(x, 0)),
+#        pct_arts_awards  = round(n_arts_awards / n_all_awards * 100, 1),
+#        pct_arts_dollars = round(dollar_arts_awards / dollar_all_awards * 100, 1))
+# 
+
+```
+
+```{r}
+#| label: comdist-choropleth
+
+# # Sequential ramp: light -> dark maps directly to ascending values.
+# pal_seq    <- c('#c7e9c0', '#a1d99b', '#74c476', '#41ab5d', '#238b45')
+# col_nodata <- "#9e9e9e"
+# 
+# fmt_n <- scales::label_comma(accuracy = 1)
+# fmt_d <- scales::label_dollar(scale_cut = scales::cut_short_scale())
+# fmt_p <- scales::label_percent(scale = 1, accuracy = 0.1)
+# 
+# # One entry per mapped column: legend label and number format.
+# layer_spec <- list(
+#   n_all_awards       = list(label = "All awards (count)",    fmt = fmt_n),
+#   dollar_all_awards  = list(label = "All awards (dollars)",  fmt = fmt_d),
+#   n_arts_awards      = list(label = "Arts awards (count)",   fmt = fmt_n),
+#   dollar_arts_awards = list(label = "Arts awards (dollars)", fmt = fmt_d),
+#   pct_arts_awards    = list(label = "Arts share of awards",  fmt = fmt_p),
+#   pct_arts_dollars   = list(label = "Arts share of dollars", fmt = fmt_p)
+# )
+# 
+# # Everything to the right of geometry. Capture this BEFORE the has_/tip_ columns
+# # are added below — they append to the end too, and would otherwise be mapped.
+# map_cols <- names(comDist_agg)[
+#   (which(names(comDist_agg) == attr(comDist_agg, "sf_column")) + 1):ncol(comDist_agg)
+# ]
+# stopifnot(setequal(map_cols, names(layer_spec)))
+# 
+# # Award counts and dollars are heavily skewed across districts, so equal
+# # intervals would put nearly every district in one class.
+# make_stops <- function(x, n = length(pal_seq)) {
+#   q <- unname(quantile(x, probs = seq(0, 1, length.out = n), na.rm = TRUE))
+#   # interpolate() needs strictly increasing values; ties collapse quantiles.
+#   if (anyDuplicated(q)) seq(min(x, na.rm = TRUE), max(x, na.rm = TRUE), length.out = n) else q
+# }
+# 
+# # has_* drives the layer filters. An explicit 0/1 flag is used rather than
+# # interpolate()'s na_color, because a district with no awards has no row to join
+# # and its value arrives as JSON null — which the ramp cannot evaluate, leaving
+# # the district unpainted entirely (CD 101, CD 318).
+# for (cl in map_cols) {
+#   comDist_agg[[paste0("has_", cl)]] <- as.integer(!is.na(comDist_agg[[cl]]))
+#   comDist_agg[[paste0("tip_", cl)]] <- paste0(
+#     "CD ", comDist_agg$BoroCD, " — ", layer_spec[[cl]]$label, ": ",
+#     ifelse(is.na(comDist_agg[[cl]]), "no data", layer_spec[[cl]]$fmt(comDist_agg[[cl]]))
+#   )
+# }
+# 
+# # Source added once and referenced by id. Passing the sf object to each
+# # add_fill_layer() instead embeds the geometry once per layer.
+# m <- maplibre(style = carto_style("positron"), bounds = comDist_agg) |>
+#   add_source(id = "comdist", data = comDist_agg)
+# 
+# for (i in seq_along(map_cols)) {
+#   cl    <- map_cols[i]
+#   spec  <- layer_spec[[cl]]
+#   stops <- make_stops(comDist_agg[[cl]])
+#   vis   <- if (i == 1) "visible" else "none"
+# 
+#   m <- m |>
+#     # Districts with no awards, drawn in a flat grey so "no data" reads as a
+#     # deliberate class rather than a hole in the map.
+#     add_fill_layer(
+#       id     = paste0(cl, "__nodata"),
+#       source = "comdist",
+#       filter = list("==", list("get", paste0("has_", cl)), 0),
+#       fill_color = col_nodata, fill_opacity = 1, fill_outline_color = "#ffffff",
+#       tooltip    = paste0("tip_", cl),
+#       visibility = vis
+#     ) |>
+#     add_fill_layer(
+#       id     = cl,
+#       source = "comdist",
+#       filter = list("==", list("get", paste0("has_", cl)), 1),
+#       # In interpolate(), `values` are the data breaks and `stops` are the colors.
+#       fill_color = interpolate(column = cl, values = stops, stops = pal_seq),
+#       fill_opacity = 1,
+#       # The lightest steps sit close to the basemap, so the outline carries the
+#       # district boundary rather than the fill.
+#       fill_outline_color = "#ffffff",
+#       tooltip       = paste0("tip_", cl),
+#       hover_options = list(fill_color = "#0b0b0b", fill_opacity = 0.15),
+#       visibility    = vis
+#     ) |>
+#     add_legend(
+#       spec$label,
+#       values   = spec$fmt(stops),
+#       colors   = pal_seq,
+#       type     = "continuous",
+#       position = "bottom-left",
+#       layer_id = cl,      # ties legend visibility to its layer
+#       add      = i > 1
+#     )
+# }
+# 
+# m |>
+#   # No layer_id, so this swatch stays up whichever measure is showing.
+#   add_legend("", values = "No data", colors = col_nodata, type = "categorical",
+#              position = "bottom-left", add = TRUE) |>
+#   add_layers_control(
+#     position = "top-right",
+#     layers   = setNames(lapply(map_cols, \(cl) c(cl, paste0(cl, "__nodata"))),
+#                         vapply(layer_spec[map_cols], \(s) s$label, ""))
+#   ) |>
+#   # mapgl's layers control toggles each entry independently, so two measures can
+#   # be lit at once and the later one simply covers the earlier. Intercept in the
+#   # capture phase: switch off whatever is active before the native handler turns
+#   # the clicked entry on, and swallow clicks on the entry already showing.
+#   htmlwidgets::onRender("
+# function(el, x) {
+#   var guard = false;
+#   el.addEventListener('click', function(e) {
+#     if (guard) return;
+#     var link = e.target.closest('.layers-control .layers-list a[data-layer-ids]');
+#     if (!link) return;
+#     if (link.classList.contains('active')) { e.preventDefault(); e.stopPropagation(); return; }
+#     guard = true;
+#     el.querySelectorAll('.layers-control .layers-list a.active').forEach(function(o) { o.click(); });
+#     guard = false;
+#   }, true);
+# }")
+```
