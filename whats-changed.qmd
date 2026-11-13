@@ -51,7 +51,7 @@ anchor-sections: false
 <h2 id="2026-09-04-wider-count-of-arts-and-culture-awards-and-totals-by-council-member-and-agency-title">Wider count of arts and culture awards, and totals by Council Member and agency</h2>
 <p class="wc-meta"><time datetime="2026-09-04">September 4, 2026</time></p>
 <p class="wc-tags"><span class="wc-visually-hidden">Tags: </span><span class="wc-tag">Site</span><span class="wc-visually-hidden">, </span><span class="wc-tag">Data</span></p>
-<p>The report now also counts an award as arts and culture when the IRS classifies the organization that received it under &quot;Arts, Culture and Humanities.&quot; New sections show how much of that funding came from individual Council Members, the Speaker and the borough delegations, and through which City agencies.</p>
+<p>The report now also counts an award as arts and culture when the IRS classifies the organization that received it under &quot;Arts, Culture and Humanities,&quot; and again counts awards paid through the Department of Cultural Affairs, which the August 20 version had left out. The count of arts and culture awards went from 1,257 to 2,253, totaling $71,484,741. New sections show how much of that funding came from individual Council Members, the Speaker and the borough delegations, and through which City agencies.</p>
 <p><strong>More detail:</strong> <a href="https://github.com/BetaNYC/schedule-c-org-classification/commit/f996174">The change</a></p>
 <p class="wc-permalink"><a href="#2026-09-04-wider-count-of-arts-and-culture-awards-and-totals-by-council-member-and-agency">Link to this change<span class="wc-visually-hidden">: Wider count of arts and culture awards, and totals by Council Member and agency</span></a></p>
 </article>
